@@ -112,7 +112,8 @@ document.querySelectorAll('nav button').forEach(b => b.addEventListener('click',
 }));
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const kindLabel = r => r.kind === 'immediate' ? '<span class="badge immediate">מיידי</span>' : `<span class="badge hours">${esc(r.hours)} שעות</span>`;
+const fmtHours = h => h == null ? '' : h === 0.5 ? 'חצי שעה' : h === 1 ? 'שעה אחת' : h === 1.5 ? 'שעה וחצי' : h === 2 ? 'שעתיים' : h + ' שעות';
+const kindLabel = r => r.kind === 'immediate' ? '<span class="badge immediate">מיידי</span>' : `<span class="badge hours">${fmtHours(r.hours) || 'שעות'}</span>`;
 
 async function loadTable() {
   try {
@@ -129,8 +130,8 @@ function renderTable() {
   const body = document.getElementById('table-body');
   if (!TABLE.length) { body.innerHTML = '<div class="empty">טבלת "החטא ועונשו" עוד לא נקלטה.</div>'; return; }
   if (!rows.length) { body.innerHTML = '<div class="empty">לא נמצאו תוצאות.</div>'; return; }
-  body.innerHTML = '<table><tr><th>התקלה</th><th>העונש</th><th>הערה</th></tr>' +
-    rows.map(r => `<tr><td>${esc(r.offense)}</td><td>${kindLabel(r)}</td><td>${esc(r.note || '')}</td></tr>`).join('') + '</table>';
+  body.innerHTML = '<table><tr><th>התקלה</th><th>סוג</th><th>פירוט</th></tr>' +
+    rows.map(r => `<tr><td>${esc(r.offense)}</td><td>${kindLabel(r)}</td><td>${esc(r.note || '').replaceAll(' | ', '<br>')}</td></tr>`).join('') + '</table>';
 }
 
 function renderViolationOptions() {
@@ -208,7 +209,7 @@ async function loadSummary() {
     for (const t of d.trainees) {
       const p = t.reports.map(r => `<div class="report-line">${fmtDate(r.incident_date)} · ${esc(r.violation)}${r.matched ? '' : ' <span class="badge immediate">לא שויך לטבלה</span>'}<div class="sub">${esc(r.details || '')} — ${esc(r.reporter)}</div></div>`).join('');
       html += `<div class="card trainee-card"><h3>${esc(t.trainee)} ${
-        t.shabbat ? '<span class="badge shabbat">שבת בבסיס</span>' : (t.total_hours ? `<span class="badge hours">${t.total_hours} שעות</span>` : '')
+        t.shabbat ? '<span class="badge shabbat">שבת בבסיס</span>' : (t.total_hours ? `<span class="badge hours">${fmtHours(t.total_hours)}</span>` : '')
       }</h3>${p}${
         t.immediates.length ? `<div class="sub" style="margin-top:6px">עונשים מיידיים: ${t.immediates.map(esc).join(', ')}</div>` : ''
       }</div>`;
