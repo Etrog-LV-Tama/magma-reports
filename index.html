@@ -51,7 +51,7 @@
   <h1>אתר הדיווחים של המגמה</h1>
   <nav>
     <button class="active" data-tab="table">החטא ועונשו</button>
-    <button data-tab="report">דיווח על תקלה</button>
+    <button data-tab="report">דיווח</button>
     <button data-tab="summary">סיכום שבועי</button>
     <button data-tab="chat">שאלות</button>
   </nav>
@@ -73,9 +73,9 @@
       <input type="text" id="f-date" placeholder="למשל 14/10" inputmode="numeric">
       <label>שם החניך</label>
       <input type="text" id="f-trainee" placeholder="שם מלא">
-      <label>התקלה</label>
+      <label>העבירה</label>
       <select id="f-violation"></select>
-      <input type="text" id="f-violation-other" class="hidden" placeholder="כתבו את התקלה" style="margin-top:6px">
+      <input type="text" id="f-violation-other" class="hidden" placeholder="כתבו את העבירה" style="margin-top:6px">
       <label>פרטים</label>
       <textarea id="f-details" rows="2" placeholder="מה קרה בדיוק"></textarea>
       <label>מדווח</label>
@@ -93,7 +93,7 @@
   <section id="tab-chat" class="hidden">
     <div class="card">
       <div class="chat-log" id="chat-log">
-        <div class="msg bot">שאלו שאלה חופשית על "החטא ועונשו" — למשל מה העונש על תקלה מסוימת, או אם עונש צריך להיות מיידי.</div>
+        <div class="msg bot">שאלו שאלה חופשית על "החטא ועונשו" — למשל מה העונש על עבירה מסוימת, או אם עונש צריך להיות מיידי.</div>
       </div>
       <input type="text" id="chat-in" placeholder="כתבו שאלה…" onkeydown="if(event.key==='Enter')sendChat()">
       <button class="btn" id="chat-btn" onclick="sendChat()">שליחה</button>
@@ -130,7 +130,7 @@ function renderTable() {
   const body = document.getElementById('table-body');
   if (!TABLE.length) { body.innerHTML = '<div class="empty">טבלת "החטא ועונשו" עוד לא נקלטה.</div>'; return; }
   if (!rows.length) { body.innerHTML = '<div class="empty">לא נמצאו תוצאות.</div>'; return; }
-  body.innerHTML = '<table><tr><th>התקלה</th><th>סוג</th><th>פירוט</th></tr>' +
+  body.innerHTML = '<table><tr><th>העבירה</th><th>סוג</th><th>פירוט</th></tr>' +
     rows.map(r => `<tr><td>${esc(r.offense)}</td><td>${kindLabel(r)}</td><td>${esc(r.note || '').replaceAll(' | ', '<br>')}</td></tr>`).join('') + '</table>';
 }
 
@@ -177,7 +177,7 @@ async function submitReport() {
     reporter: document.getElementById('f-reporter').value.trim(),
   };
   if (!body.date || !body.trainee || !body.violation || !body.reporter) {
-    err.textContent = 'חסרים שדות: תאריך, שם החניך, התקלה ומדווח הם חובה.'; err.style.display = 'block'; return;
+    err.textContent = 'חסרים שדות: תאריך, שם החניך, העבירה ומדווח הם חובה.'; err.style.display = 'block'; return;
   }
   const btn = document.getElementById('submit');
   btn.disabled = true; btn.textContent = 'שולח…';
@@ -220,6 +220,155 @@ async function loadSummary() {
   }
 }
 
+/* ===== smart chatbot (client-side matching over the punishment table) ===== */
+const SYN = [
+  ['איחר','איחור','מאחר','התאחר','איחרתי','באיחור','התעכב','הגיע מאוחר','לא הגיע בזמן'],
+  ['טלפון','פלאפון','נייד','סמארטפון','מכשיר','פלפון','אייפון'],
+  ['אוכל','אכל','אכילה','משלוח','וולט'],
+  ['מסדר','מסדרים'],
+  ['שיעור','שיעורים','הרצאה','הרצאות'],
+  ['מחברת','מחברות','פנקס'],
+  ['קילל','קללה','גידף','קללות','ניבל'],
+  ['שקר','שיקר','משקר','הטעה','שקרים'],
+  ['העתק','העתקה','העתיק','העתקות','רימה'],
+  ['חוגר','חוגרה','חגור'],
+  ['דיגום','מדוגם','דגום','מדים'],
+  ['נעל','נעול','נעילה','נעלה'],
+  ['מפתח','מפתחות'],
+  ['תורנות','תורן','שמירה','שמירות','תורנויות'],
+  ['אלימות','הרביץ','אלים','היכה','מכה','מכות','דחף'],
+  ['התחצף','חוצפה','חצוף','התחצפות'],
+  ['צחק','צחוק','דיבר','דיבור','לדבר','שוחח','פטפט'],
+  ['נשק','נשקים'],
+  ['סיגריה','עישן','עישון','סיגריות','סיגריית'],
+  ['מחשב','לפטופ','לפטופים','מחשבים'],
+  ['ווטסאפ','וואטסאפ','וואטסאפ','whatsapp','הודעה','הודעות'],
+];
+const PFX = /^(וה|ול|מה|שה|וב|ומ|וש|כש|ה|ל|ב|מ|ו|ש|כ)(?=.{3,})/;
+function normHe(s) {
+  return String(s||'').toLowerCase()
+    .replace(/[\u0591-\u05C7]/g,'')
+    .replace(/["'“”„‟״׳`´]/g,'')
+    .replace(/[ךםןףץ]/g, c => ({'ך':'כ','ם':'מ','ן':'נ','ף':'פ','ץ':'צ'}[c]))
+    .replace(/[^\u05D0-\u05EAa-z0-9\s]/g,' ')
+    .replace(/\s+/g,' ').trim();
+}
+const STOP = new Set(['מישהו','מישהי','משהו','כלשהו','ראשונה','ראשון','שנייה','שניה','שני','שלישית','שלישי','רביעית','רביעי','שוב','עוד','את','של','על','עם','אם','מה','כמה','האם','הוא','היא','זה','זו','אני','אתה','לו','לה','או','גם','כי','אבל','יש','אין','לא','כן','עבירה','עבירות','חניך','חניכה','חייל','חיילת','עונש','העונש','עונשו','צריך','צריכה','קורה','קורים','קרה','עושים','עושה','לעשות','מגיע','מגיעה','יקבל','מקבל','שלו','שלה','פעם','בפעם','לדווח','לדווחו','דיווח','לי','בבקשה','תגיד','תגידו','אז','כשחניך','כשחניכה','חניכים','אחד','הזה']);
+const CANON = new Map();
+const STOPN = new Set([...STOP].map(w => normHe(w)));
+SYN.forEach(g => { const c = normHe(g[0]); g.forEach(w => CANON.set(normHe(w), c)); });
+function stem(w) {
+  if (CANON.has(w)) return CANON.get(w);
+  const w2 = w.replace(PFX, '');
+  if (CANON.has(w2)) return CANON.get(w2);
+  return w2.length >= 2 ? w2 : w;
+}
+// rank-title letters ר/ד in "רס"ר/רס"ד" are interchangeable here
+function tokens(s) {
+  let n = normHe(s).replace(/(^| )רס[רד]( |$)/g,' רסר ');
+  return n.split(' ').filter(w => w && !STOPN.has(w)).map(stem).filter(w => !STOPN.has(w));
+}
+function grams(w) { const g = new Set(); const p = '_'+w+'_'; for (let i=0;i<p.length-1;i++) g.add(p.slice(i,i+2)); return g; }
+function tokSim(a, b) {
+  if (a === b) return 1;
+  if (a.length >= 3 && b.length >= 3 && (a.includes(b) || b.includes(a))) return 0.85;
+  if (a.length < 3 || b.length < 3) return 0;
+  const A = grams(a), B = grams(b); let i = 0; A.forEach(x => { if (B.has(x)) i++; });
+  const d = 2*i/(A.size+B.size);
+  return d >= 0.6 ? d*0.9 : 0;
+}
+let INDEX = null;
+function buildIndex() {
+  const df = new Map();
+  const rows = TABLE.map(r => {
+    const paren = (r.offense.match(/\([^)]*\)/g) || []).join(' ');
+    const main = tokens(r.offense.replace(/\([^)]*\)/g, ' '));
+    const par = tokens(paren);
+    const note = tokens((r.note||'').split('|').filter(p => !/^\s*(עונש|לדווח)/.test(p)).join(' '));
+    new Set(main).forEach(t => df.set(t, (df.get(t)||0)+1));
+    return { r, main, note: note.concat(par) };
+  });
+  INDEX = { rows, df, n: rows.length };
+}
+function bestSim(q, arr) { let b = 0; for (const t of arr) { const s = tokSim(q, t); if (s > b) b = s; } return b; }
+function rankRows(question) {
+  if (!INDEX) buildIndex();
+  const qt = [...new Set(tokens(question))];
+  if (!qt.length) return [];
+  const idf = t => Math.log(1 + INDEX.n / (1 + (INDEX.df.get(t) || 0)));
+  const total = qt.reduce((a,t) => a + idf(t), 0) || 1;
+  const nq = normHe(question).replace(/(^| )רס[רד]( |$)/g,' רסר ');
+  const out = INDEX.rows.map(({r, main, note}) => {
+    let s = 0;
+    for (const t of qt) { const m = bestSim(t, main), k = 0.5*bestSim(t, note); s += idf(t) * Math.max(m, k); }
+    let sc = s / total;
+    // coverage penalty: a long offense that only matches one query word is weaker
+    const covered = main.length ? Math.min(1, main.filter(x => bestSim(x, qt) > 0.6).length / Math.min(main.length, 3)) : 0;
+    sc = sc * (0.9 + 0.1*covered);
+    if (normHe(r.offense).replace(/(^| )רס[רד]( |$)/g,' רסר ').includes(nq) && nq.length > 4) sc += 0.2;
+    return { r, score: sc };
+  }).sort((a,b) => b.score - a.score);
+  return out;
+}
+function parseNote(note) {
+  const o = {}; String(note||'').split('|').forEach(p => { const i = p.indexOf(':'); if (i > 0) o[p.slice(0,i).trim()] = p.slice(i+1).trim(); });
+  return o;
+}
+const ORD = [[/שלישית|שלישי|3|שלוש/, ['שלישית','שלישי']],[/שנייה|שניה|שני|2|שתיים|שניי/, ['שנייה','שניה','שני']],[/ראשונה|ראשון|ראשונ|1|פעם אחת/, ['ראשונה','ראשון']],[/רביעית|רביעי|4|ארבע/, ['רביעית','רביעי']]];
+function pickOrdinal(question, punishment) {
+  const parts = punishment.split(/\s*;\s*|\s*,\s*(?=(?:דיווח|פעם)\s)/);
+  if (parts.length < 2) return null;
+  const q = normHe(question);
+  const w = q.match(/(ראשונה|ראשון|שנייה|שניה|שני|שלישית|שלישי|רביעית|רביעי)/);
+  if (!w) return null;
+  for (const [, names] of ORD) if (names.includes(w[1])) {
+    const hit = parts.find(p => names.some(n => normHe(p).includes(n)));
+    if (hit) return hit;
+  }
+  return null;
+}
+function fmtRow(r, question, full) {
+  const f = parseNote(r.note);
+  let pun = f['עונש'] || '';
+  const picked = pickOrdinal(question || '', pun);
+  const lines = ['«' + r.offense + '»'];
+  if (picked) lines.push('העונש: ' + picked);
+  else if (pun) lines.push('העונש: ' + pun.replace(/\s*;\s*/g, ' | '));
+  else if (f['נושא'] && !f['לדווח']) lines.push(r.note);
+  if (f['לדווח']) lines.push('לדווח: ' + f['לדווח']);
+  if (r.kind === 'hours' && r.hours && !/שעה|שעות|דקות/.test(pun)) lines.push('(שלילת חופשה: ' + fmtHours(r.hours) + ')');
+  if (full && f['הערות']) lines.push('הערה: ' + f['הערות']);
+  if (full && f['התייחסויות']) lines.push('התייחסות: ' + f['התייחסויות']);
+  return lines.join('\n');
+}
+function shortRow(r) {
+  const f = parseNote(r.note);
+  return '• ' + r.offense + ' ← ' + (f['עונש'] || r.note).replace(/\s*;\s*/g, ' | ') + (f['לדווח'] ? ' (לדווח: ' + f['לדווח'] + ')' : '');
+}
+async function smartAnswer(question) {
+  if (!TABLE.length) { try { await loadTable(); } catch(e){} }
+  const ranked = rankRows(question);
+  const top = ranked[0], second = ranked[1];
+  if (top && top.score >= 0.55 && (!second || top.score - second.score >= 0.12))
+    return fmtRow(top.r, question, true);
+  if (top && top.score >= 0.4) {
+    const cands = ranked.filter(x => x.score >= top.score - 0.15 && x.score >= 0.35).slice(0, 3);
+    if (cands.length === 1) return fmtRow(top.r, question, true);
+    return 'לא בטוח למה בדיוק התכוונת. הכי קרוב:\n' + cands.map(c => shortRow(c.r)).join('\n') + '\nאיזה מהם?';
+  }
+  // free-form: let the model answer, but hand it the closest table rows as context
+  const ctx = ranked.slice(0, 5).filter(x => x.score > 0.15).map(x => shortRow(x.r) + (parseNote(x.r.note)['הערות'] ? ' [הערה: ' + parseNote(x.r.note)['הערות'] + ']' : '')).join('\n');
+  return { llm: true, ctx };
+}
+
+async function askModel(q, ctx) {
+  const prompt = 'ענה בעברית, בקצרה ובדיוק, רק לפי הטבלה. אם העבירה לא בטבלה או שהשאלה לא ברורה - אמור זאת ושאל שאלה קצרה. בשורות הטבלה הקרובות ביותר לשאלה: \n' + ctx + '\n\nשאלה: ' + q;
+  const r = await fetch(API + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: prompt }) });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'שגיאה');
+  return d.answer;
+}
+
 async function sendChat() {
   const inp = document.getElementById('chat-in');
   const q = inp.value.trim();
@@ -230,13 +379,14 @@ async function sendChat() {
   const btn = document.getElementById('chat-btn');
   btn.disabled = true;
   log.insertAdjacentHTML('beforeend', '<div class="msg bot" id="thinking">…</div>');
+  let text;
   try {
-    const r = await fetch(API + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }) });
-    const d = await r.json();
-    document.getElementById('thinking').outerHTML = `<div class="msg bot">${esc(r.ok ? d.answer : (d.error || 'שגיאה'))}</div>`;
+    const a = await smartAnswer(q);
+    text = typeof a === 'string' ? a : await askModel(q, a.ctx);
   } catch (e) {
-    document.getElementById('thinking').outerHTML = '<div class="msg bot">התשובה נכשלה — נסו שוב.</div>';
+    text = 'התשובה נכשלה — נסו שוב.';
   }
+  document.getElementById('thinking').outerHTML = `<div class="msg bot" style="white-space:pre-line">${esc(text)}</div>`;
   btn.disabled = false;
   log.scrollTop = log.scrollHeight;
 }
