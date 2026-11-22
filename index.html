@@ -200,11 +200,24 @@ const fmtDate = iso => { const [y,m,d] = iso.split('-'); return `${d}/${m}`; };
 
 async function loadSummary() {
   const body = document.getElementById('summary-body');
+  let key = localStorage.getItem('readerKey') || '';
+  if (!key) {
+    body.innerHTML = `<div class="card"><div class="empty">צפייה בסיכומים מוגנת בקוד מפקדים.</div>
+      <input id="reader-key-input" type="password" inputmode="text" placeholder="קוד צפייה" style="width:100%;margin-top:10px">
+      <button id="reader-key-save" style="margin-top:10px">כניסה</button></div>`;
+    document.getElementById('reader-key-save').onclick = () => {
+      const v = document.getElementById('reader-key-input').value.trim();
+      if (v) { localStorage.setItem('readerKey', v); loadSummary(); }
+    };
+    return;
+  }
   body.innerHTML = '<div class="spinner">טוען…</div>';
   try {
-    const d = await (await fetch(API + '/api/summary')).json();
+    const res = await fetch(API + '/api/summary', { headers: { 'X-Reader-Key': key } });
+    if (res.status === 403) { localStorage.removeItem('readerKey'); loadSummary(); return; }
+    const d = await res.json();
     const w = d.window;
-    let html = `<div class="card"><b>שבוע נוכחי (חמישי–רביעי):</b> ${fmtDate(w.from)} – ${fmtDate(w.to)}</div>`;
+    let html = `<div class="card"><b>שבוע נוכחי (חמישי–רביעי):</b> ${fmtDate(w.from)} – ${fmtDate(w.to)}<div class="sub">דיווחים שיובאו מהטופס מסומנים לפי מועד השליחה.</div></div>`;
     if (!d.trainees.length) html += '<div class="card"><div class="empty">אין דיווחים השבוע.</div></div>';
     for (const t of d.trainees) {
       const p = t.reports.map(r => `<div class="report-line">${fmtDate(r.incident_date)} · ${esc(r.violation)}${r.matched ? '' : ' <span class="badge immediate">לא שויך לטבלה</span>'}<div class="sub">${esc(r.details || '')} — ${esc(r.reporter)}</div></div>`).join('');
